@@ -119,7 +119,7 @@ object Graph {
 
     /** A newer release found on GitHub, its download progress, and any message about it. */
     object Update {
-        var available by mutableStateOf<Updater.Release?>(null)
+        var available by mutableStateOf<io.github.shoalapps.common.update.AppRelease?>(null)
         var progress by mutableStateOf<Float?>(null)
         var message by mutableStateOf<String?>(null)
     }

@@ -72,10 +72,6 @@
                 <data android:scheme="io.github.shoalapps" android:path="/oauth/blobfish" />
             </intent-filter>
         </activity>
-
-        <receiver
-            android:name=".data.InstallResultReceiver"
-            android:exported="false" />
         <!-- Home-screen widget. -->
         <receiver android:name=".widget.BlobfishWidgetReceiver" android:exported="false" android:label="Butterflyfish">
             <intent-filter>
