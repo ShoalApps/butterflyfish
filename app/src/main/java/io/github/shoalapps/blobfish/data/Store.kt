@@ -54,6 +54,34 @@ class Store(context: Context) {
     )
     val session: StateFlow<Session?> = _session
 
+    /**
+     * Every Bluesky account signed in on this phone, in the order they were added; [session] is
+     * the one in use. Before multiple accounts there was only the one session, which becomes the list.
+     */
+    private val _accounts = MutableStateFlow(
+        prefs.getString("accounts", null)?.let { runCatching { json.decodeFromString<List<SavedSession>>(it) }.getOrNull() }
+            ?.map { Session(it.did, it.handle, it.access, it.refresh, it.pds, it.oauth, it.tokenUrl) }
+            ?: listOfNotNull(_session.value),
+    )
+    val accounts: StateFlow<List<Session>> = _accounts
+
+    private fun saveAccounts(list: List<Session>) {
+        _accounts.value = list
+        prefs.edit().putString("accounts", json.encodeToString(list.map { SavedSession(it.did, it.handle, it.access, it.refresh, it.pds, it.oauth, it.tokenUrl) })).apply()
+    }
+
+    /** Uses another signed-in account. Nothing is signed out. */
+    @Synchronized fun switchTo(key: String) {
+        val target = _accounts.value.firstOrNull { AccountList.key(it) == key } ?: return
+        setSession(target)
+    }
+
+    /** Signs an account out of this phone; signing out the one in use leaves you signed out. */
+    @Synchronized fun removeAccount(key: String) {
+        if (_session.value?.let(AccountList::key) == key) setSession(null)
+        else saveAccounts(AccountList.remove(_accounts.value, key))
+    }
+
     private val _hiddenFollows = MutableStateFlow(readHiddenFollows(_session.value))
     val hiddenFollows: StateFlow<Map<String, String>> = _hiddenFollows
 
@@ -98,6 +126,8 @@ class Store(context: Context) {
         if (previous?.let { it.did + "|" + it.pds } != s?.let { it.did + "|" + it.pds }) {
             _feedGeneration.value += 1
             Engagement.clear()
+            // Each account has its own moderation settings; they're fetched again for the new one.
+            setModeration(Moderation.Prefs())
             if (s == null && previous != null) {
                 val owner = "bluesky|" + previous.did + "|" + previous.pds
                 clearFeedAnchors(owner, waitForDisk = false)
@@ -108,6 +138,8 @@ class Store(context: Context) {
         io.github.shoalapps.blobfish.Graph.offline.changed()
         if (s == null) { prefs.edit().remove("session").apply(); setModeration(Moderation.Prefs()) }
         else prefs.edit().putString("session", json.encodeToString(SavedSession.serializer(), SavedSession(s.did, s.handle, s.access, s.refresh, s.pds, s.oauth, s.tokenUrl))).apply()
+        // Signing in adds the account (or renews its tokens); signing out removes it.
+        saveAccounts(if (s != null) AccountList.upsert(_accounts.value, s) else previous?.let { AccountList.remove(_accounts.value, AccountList.key(it)) } ?: _accounts.value)
     }
 
     /** Moderation preferences: a copy of your account's (or the defaults when signed out). */

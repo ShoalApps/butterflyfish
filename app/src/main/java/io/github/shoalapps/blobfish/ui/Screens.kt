@@ -1043,8 +1043,10 @@ fun SignInScreen(onDone: () -> Unit, onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var appPassword by remember { mutableStateOf(false) }
     val session by Graph.store.session.collectAsState()
-    // Back from Bluesky's page and signed in: done.
-    LaunchedEffect(session?.did) { if (session != null) onDone() }
+    // Back from Bluesky's page and signed in: done. Adding another account starts signed in, so
+    // only a new sign-in (fresh tokens) counts.
+    val startedWith = remember { Graph.store.session.value }
+    LaunchedEffect(session) { if (session != null && session != startedWith) onDone() }
     Scaffold(
         contentWindowInsets = WindowInsets(0),
         topBar = { TopAppBar(title = { Text("Sign in") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) },
@@ -1402,6 +1404,7 @@ fun SettingsScreen(onBack: () -> Unit, onSignIn: () -> Unit, onModeration: () ->
     val store = Graph.store
     val s by store.settings.collectAsState()
     val session by store.session.collectAsState()
+    val signedInAccounts by store.accounts.collectAsState()
     var compatibility by remember { mutableStateOf(false) }
     if (compatibility) {
         androidx.activity.compose.BackHandler { compatibility = false }
@@ -1439,12 +1442,22 @@ fun SettingsScreen(onBack: () -> Unit, onSignIn: () -> Unit, onModeration: () ->
                         store.updateSettings { it.copy(service = "bluesky") }
                     } }
                 } else {
+                    // Every Bluesky account on this phone: tap another to switch, tap the one in use to sign it out.
                     val sess = session
-                    if (sess != null) {
-                        row { sh -> Link("Signed in as @${sess.handle}", "Sign out of this account", sh) { store.setSession(null); io.github.shoalapps.blobfish.data.BskyOAuth.forgetKey() } }
-                    } else {
-                        row { sh -> Link("Sign in to Bluesky", "Post, reply, like and see your timeline", sh, onSignIn) }
+                    val accounts = signedInAccounts
+                    accounts.forEach { a ->
+                        val key = io.github.shoalapps.blobfish.data.AccountList.key(a)
+                        val inUse = sess != null && io.github.shoalapps.blobfish.data.AccountList.key(sess) == key
+                        row { sh ->
+                            if (inUse) Link("Signed in as @${a.handle}", "Sign out of this account", sh) { Graph.signOut(key) }
+                            else Link("@${a.handle}", "Switch to this account", sh) {
+                                Graph.switchAccount(key)
+                                toast(context, AppLanguage.translate("Switched to") + " @" + a.handle)
+                            }
+                        }
                     }
+                    if (accounts.isEmpty()) row { sh -> Link("Sign in to Bluesky", "Post, reply, like and see your timeline", sh, onSignIn) }
+                    else row { sh -> Link("Add another account", "Sign in to another Bluesky account; switch between them here", sh, onSignIn) }
                 }
             }
             item { OfflineStatus() }

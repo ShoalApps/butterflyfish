@@ -74,10 +74,29 @@ object Graph {
         s.cookies["x"]?.let { ManagerAccounts.applyCookies("https://x.com", it) }
         val handle = s.blueskyHandle
         val password = s.blueskyAppPassword
-        if (handle != null && password != null && store.session.value?.handle != handle) {
+        // Only an account not already on this phone is signed in, so the one in use isn't swapped.
+        if (handle != null && password != null && store.accounts.value.none { it.handle == handle }) {
             // Bluesky sessions can't be shared, so sign in here with the Manager's app password.
             scope.launch { runCatching { atp.signIn(handle, password) }.onSuccess { syncModeration(); syncProfile() } }
         }
+    }
+
+    /** Uses another signed-in Bluesky account, with its own picture and moderation settings. */
+    fun switchAccount(key: String) {
+        store.switchTo(key)
+        myAvatar = null
+        syncModeration()
+        syncProfile()
+    }
+
+    /**
+     * Signs an account out of this phone. The key that signs requests is shared by every account
+     * signed in through Bluesky's page, so it's only forgotten once none of them are left.
+     */
+    fun signOut(key: String) {
+        store.removeAccount(key)
+        if (store.session.value == null) myAvatar = null
+        if (store.accounts.value.none { it.oauth }) io.github.shoalapps.blobfish.data.BskyOAuth.forgetKey()
     }
 
     /** Your profile picture, for the You tab. */
