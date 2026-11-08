@@ -3,6 +3,7 @@ package io.github.shoalapps.blobfish.data
 import io.github.shoalapps.blobfish.Graph
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -141,7 +142,25 @@ data class Notification(val reason: String, val author: Author, val subject: Str
 /** Your sign-in. [oauth] sessions came from Bluesky's sign-in page and sign each request (DPoP). */
 data class Session(val did: String, val handle: String, val access: String, val refresh: String, val pds: String, val oauth: Boolean = false, val tokenUrl: String? = null)
 
-class AtpException(val status: Int, message: String) : Exception(message)
+/** [error] is the server's error code, such as "invalid_grant", when it gave one. */
+class AtpException(val status: Int, message: String, val error: String? = null) : Exception(message)
+
+/** Reading and saving your profile record safely. */
+object ProfileRules {
+    /** The account has no profile record yet, so starting from an empty one loses nothing. */
+    fun missing(status: Int, error: String?) = status == 404 || (status == 400 && error == "RecordNotFound") ||
+        (status == 400 && error?.startsWith("Could not locate record") == true)
+
+    /** The profile changed after it was read: saving would overwrite someone else's edit. */
+    fun conflict(error: String?) = error == "InvalidSwap" || error?.contains("swapRecord", ignoreCase = true) == true
+}
+
+/** When a failed sign-in refresh really means signing in again, rather than a network or server hiccup. */
+object SessionRules {
+    private val rejections = setOf("invalid_grant", "invalid_client", "unauthorized_client", "ExpiredToken", "InvalidToken", "AccountTakedown")
+
+    fun rejected(status: Int?, error: String?): Boolean = status == 401 || (status == 400 && error in rejections)
+}
 
 /**
  * Bluesky's servers sometimes time out (502, 503, 504) under load and answer fine a moment later.
@@ -248,15 +267,15 @@ class Atp(private val http: OkHttpClient, private val store: Store) {
                 if (resp.code == 401 && challenge.contains("use_dpop_nonce") && !retried) return@withContext call(method, nsid, params, body, auth, retried = true, sendQueued = sendQueued, expectedOwner = expectedOwner)
                 // The access token ran out: refresh it and try again.
                 if (resp.code == 401 && (challenge.contains("invalid_token") || obj.str("error") == "invalid_token") && !retried) {
-                    refreshSession()
+                    refreshSession(s)
                     return@withContext call(method, nsid, params, body, auth, retried = true, sendQueued = sendQueued, expectedOwner = expectedOwner)
                 }
             }
             if (resp.code == 400 && obj.str("error") == "ExpiredToken" && s != null && !retried) {
-                refreshSession()
+                refreshSession(s)
                 return@withContext call(method, nsid, params, body, auth, retried = true, sendQueued = sendQueued, expectedOwner = expectedOwner)
             }
-            if (!resp.isSuccessful) throw AtpException(resp.code, obj.str("message") ?: obj.str("error") ?: Transient.message(resp.code))
+            if (!resp.isSuccessful) throw AtpException(resp.code, obj.str("message") ?: obj.str("error") ?: Transient.message(resp.code), obj.str("error"))
             if (method == "GET") Graph.offline.remember(cacheKey, obj, namespace)
             obj
         }
@@ -303,20 +322,41 @@ class Atp(private val http: OkHttpClient, private val store: Store) {
         url
     }
 
-    private suspend fun refreshSession() = withContext(Dispatchers.IO) {
-        val s = session ?: return@withContext
-        if (s.oauth) {
-            runCatching { BskyOAuth.refresh(http, s) }.onSuccess { store.setSession(it) }.onFailure { store.setSession(null); throw AtpException(401, "Please sign in again") }
-            return@withContext
+    private val refreshing = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * Gets a new access token for [stale], the session a request just found expired. One refresh
+     * at a time: Bluesky replaces the refresh token each time, so a second refresh with the old one
+     * would be refused. You're only signed out when Bluesky refuses the sign-in itself; no signal or
+     * a server that's down leaves you signed in, to try again.
+     */
+    private suspend fun refreshSession(stale: Session) = withContext(Dispatchers.IO) {
+        refreshing.withLock {
+            val s = session ?: return@withLock
+            // Another request refreshed it while this one waited, or the account changed.
+            if (s.did != stale.did || s.pds != stale.pds || s.access != stale.access) return@withLock
+            try {
+                store.setSession(if (s.oauth) BskyOAuth.refresh(http, s) else passwordRefresh(s))
+            } catch (e: AtpException) {
+                if (SessionRules.rejected(e.status, e.error)) {
+                    if (session == s) store.setSession(null)
+                    throw AtpException(401, "Please sign in again")
+                }
+                throw AtpException(e.status, "Couldn't reach Bluesky to renew your sign-in. You're still signed in; try again.")
+            }
         }
+    }
+
+    private fun passwordRefresh(s: Session): Session {
         val req = Request.Builder().url("${s.pds}/xrpc/com.atproto.server.refreshSession")
             .header("Authorization", "Bearer ${s.refresh}")
             .post(ByteArray(0).toRequestBody())
             .build()
-        http.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) { store.setSession(null); throw AtpException(resp.code, "Please sign in again") }
-            val obj = json.parseToJsonElement(resp.body!!.string()) as JsonObject
-            store.setSession(sessionFrom(obj, s.pds))
+        return http.newCall(req).execute().use { resp ->
+            val text = resp.body?.string().orEmpty()
+            val obj = runCatching { json.parseToJsonElement(text) as JsonObject }.getOrDefault(JsonObject(emptyMap()))
+            if (!resp.isSuccessful) throw AtpException(resp.code, obj.str("message") ?: "Bluesky said ${resp.code}", obj.str("error"))
+            sessionFrom(obj, s.pds)
         }
     }
 
@@ -593,14 +633,27 @@ class Atp(private val http: OkHttpClient, private val store: Store) {
     }
 
     /** Uploads an image to your PDS; returns the blob reference a record can point to. */
-    suspend fun uploadBlob(bytes: ByteArray, mime: String): JsonObject = withContext(Dispatchers.IO) {
+    suspend fun uploadBlob(bytes: ByteArray, mime: String, retried: Boolean = false): JsonObject = withContext(Dispatchers.IO) {
         val s = requireSession()
-        val req = Request.Builder().url("${s.pds}/xrpc/com.atproto.repo.uploadBlob")
-            .header("Authorization", "Bearer ${s.access}")
-            .post(bytes.toRequestBody(mime.toMediaType()))
-            .build()
+        val url = "${s.pds}/xrpc/com.atproto.repo.uploadBlob"
+        // Signed in through Bluesky's page, uploads need the same DPoP proof as every other request.
+        val req = Request.Builder().url(url).apply {
+            if (s.oauth) {
+                header("Authorization", "DPoP ${s.access}")
+                header("DPoP", BskyOAuth.proof("POST", url, BskyOAuth.nonceFor(url), s.access))
+            } else header("Authorization", "Bearer ${s.access}")
+        }.post(bytes.toRequestBody(mime.toMediaType())).build()
         http.newCall(req).execute().use { resp ->
             val obj = runCatching { json.parseToJsonElement(resp.body!!.string()) as JsonObject }.getOrDefault(JsonObject(emptyMap()))
+            if (s.oauth) BskyOAuth.remember(url, resp)
+            val challenge = resp.header("WWW-Authenticate").orEmpty()
+            if (!retried && resp.code == 401 && challenge.contains("use_dpop_nonce")) return@withContext uploadBlob(bytes, mime, retried = true)
+            val expired = (resp.code == 401 && (challenge.contains("invalid_token") || obj.str("error") == "invalid_token")) ||
+                (resp.code == 400 && obj.str("error") == "ExpiredToken")
+            if (!retried && expired) {
+                refreshSession(s)
+                return@withContext uploadBlob(bytes, mime, retried = true)
+            }
             if (!resp.isSuccessful) throw AtpException(resp.code, obj.str("message") ?: "Couldn't upload the picture")
             obj["blob"].obj ?: throw AtpException(500, "Couldn't upload the picture")
         }
@@ -612,21 +665,33 @@ class Atp(private val http: OkHttpClient, private val store: Store) {
      */
     suspend fun updateProfile(displayName: String? = null, description: String? = null, avatar: JsonObject? = null, banner: JsonObject? = null) {
         val s = requireSession()
-        val current = runCatching {
+        // Edits start from the profile as it is on Bluesky now, never from a saved copy or a blank one.
+        if (!Graph.offline.available()) throw AtpException(503, "Connect to the internet to edit your profile. Nothing was changed.")
+        val current = try {
             call("GET", "com.atproto.repo.getRecord", mapOf("repo" to s.did, "collection" to "app.bsky.actor.profile", "rkey" to "self"))
-        }.getOrNull()
+        } catch (e: AtpException) {
+            // Only an account that has never had a profile starts from an empty one.
+            if (!ProfileRules.missing(e.status, e.error ?: e.message)) throw AtpException(e.status, "Couldn't load your current profile, so nothing was changed. Try again.")
+            null
+        }
         val record = (current?.get("value").obj ?: buildJsonObject { put("\$type", "app.bsky.actor.profile") }).toMutableMap()
         displayName?.let { record["displayName"] = JsonPrimitive(it) }
         description?.let { record["description"] = JsonPrimitive(it) }
         avatar?.let { record["avatar"] = it }
         banner?.let { record["banner"] = it }
-        call("POST", "com.atproto.repo.putRecord", body = buildJsonObject {
-            put("repo", s.did)
-            put("collection", "app.bsky.actor.profile")
-            put("rkey", "self")
-            put("record", JsonObject(record))
-            current?.str("cid")?.let { put("swapRecord", it) }
-        })
+        // Sent now rather than queued, so you hear straight away if it didn't save.
+        try {
+            call("POST", "com.atproto.repo.putRecord", sendQueued = true, body = buildJsonObject {
+                put("repo", s.did)
+                put("collection", "app.bsky.actor.profile")
+                put("rkey", "self")
+                put("record", JsonObject(record))
+                current?.str("cid")?.let { put("swapRecord", it) }
+            })
+        } catch (e: AtpException) {
+            if (ProfileRules.conflict(e.error ?: e.message)) throw AtpException(409, "Your profile was changed somewhere else meanwhile. Reopen it and try again; nothing was overwritten.")
+            throw e
+        }
     }
 
     suspend fun follow(did: String): String = createRecord("app.bsky.graph.follow", buildJsonObject {

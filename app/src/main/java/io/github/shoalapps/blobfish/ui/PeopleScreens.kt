@@ -98,9 +98,9 @@ fun PeopleScreen(kind: String, actor: String, nav: Nav, onBack: () -> Unit) {
     val signedIn = Graph.store.session.collectAsState().value != null
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf(PeopleFilter.ALL) }
-    // Follows changed here, so rows update straight away (did -> follow record, or null).
-    val changed = remember { mutableStateMapOf<String, String?>() }
-    val following = { a: Author -> if (a.did in changed) changed[a.did] != null else a.followUri != null }
+    // Follows are shared with profiles and other lists, so every screen agrees (see Engagement).
+    val following = { a: Author -> io.github.shoalapps.blobfish.data.Engagement.follow(a.did, a.followUri).on }
+    val context = androidx.compose.ui.platform.LocalContext.current
     val narrowing = query.isNotBlank() || filter != PeopleFilter.ALL
     // Searching and filtering look through the whole list, so fetch the rest while either is on.
     LaunchedEffect(narrowing, vm.hasMore, vm.loadingMore, vm.loading) {
@@ -168,16 +168,7 @@ fun PeopleScreen(kind: String, actor: String, nav: Nav, onBack: () -> Unit) {
                     else -> items(shown, key = { it.did }) { a ->
                         PersonCard(
                             a, following(a), signedIn && a.did != Graph.store.session.value?.did,
-                            onFollow = {
-                                val was = changed[a.did] ?: if (a.did in changed) null else a.followUri
-                                if (was == null) {
-                                    changed[a.did] = "pending"
-                                    vm.viewModelScope.launch { runCatching { Graph.atp.follow(a.did) }.onSuccess { changed[a.did] = it }.onFailure { changed[a.did] = null } }
-                                } else {
-                                    changed[a.did] = null
-                                    vm.viewModelScope.launch { runCatching { if (was != "pending") Graph.atp.undo(was) }.onFailure { changed[a.did] = was } }
-                                }
-                            },
+                            onFollow = { toggleFollow(context, a, a.followUri) },
                             modifier = Modifier.animateItem(),
                         ) { nav.profile(a.did) }
                     }
@@ -258,13 +249,17 @@ fun EditProfileScreen(onBack: () -> Unit) {
     var newAvatar by remember { mutableStateOf<Uri?>(null) }
     var newBanner by remember { mutableStateOf<Uri?>(null) }
     var saving by remember { mutableStateOf(false) }
-    LaunchedEffect(session?.did) {
+    // A profile that didn't load says why, with a way to try again, instead of a form that can't save.
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var attempt by remember { mutableStateOf(0) }
+    LaunchedEffect(session?.did, attempt) {
         val did = session?.did ?: return@LaunchedEffect
+        loadError = null
         runCatching { Graph.atp.profile(did) }.onSuccess { p ->
             profile = p
             name = p.author.displayName.orEmpty()
             bio = p.description.orEmpty()
-        }.onFailure { toast(context, friendly(it)) }
+        }.onFailure { loadError = friendly(it) }
     }
     val nameLimit = io.github.shoalapps.blobfish.data.BlueskyText.displayName
     val bioLimit = io.github.shoalapps.blobfish.data.BlueskyText.bio
@@ -306,6 +301,7 @@ fun EditProfileScreen(onBack: () -> Unit) {
             Modifier.fillMaxSize().padding(top = pad.calculateTopPadding()).verticalScroll(rememberScrollState())
                 .wrapContentWidth().widthIn(max = 680.dp),
         ) {
+            if (profile == null && loadError != null) Message(loadError!!, "Try again") { attempt++ }
             Box {
                 Box(Modifier.fillMaxWidth().aspectRatio(3f).background(MaterialTheme.colorScheme.primaryContainer).clickable { pickBanner.launch(images) }) {
                     AsyncImage(newBanner ?: profile?.banner, "Banner", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)

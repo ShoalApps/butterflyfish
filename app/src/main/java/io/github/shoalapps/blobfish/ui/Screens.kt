@@ -128,11 +128,19 @@ import kotlinx.coroutines.launch
 import io.github.shoalapps.blobfish.AppLanguage
 import io.github.shoalapps.common.ui.SupportCard
 
+/**
+ * What to tell people when something fails: what happened and what to do, never a raw exception.
+ * Messages written for people (Bluesky's own, the app's own checks and offline notes) are kept.
+ */
 fun friendly(e: Throwable): String = when (e) {
-    is AtpException -> e.message ?: "Bluesky had a problem"
-    is java.net.UnknownHostException, is java.net.ConnectException -> "You're offline. Check your connection and try again."
+    is AtpException -> e.message?.takeIf { it.isNotBlank() } ?: "Bluesky had a problem. Try again in a moment."
+    is io.github.shoalapps.blobfish.data.OfflineMessage -> e.message ?: "You're offline."
+    is java.net.UnknownHostException, is java.net.ConnectException, is java.net.NoRouteToHostException -> "You're offline. Check your connection and try again."
     is java.net.SocketTimeoutException, is java.io.InterruptedIOException -> "Bluesky is taking too long to answer. Try again."
-    else -> e.message ?: "Something went wrong"
+    is javax.net.ssl.SSLException -> "Couldn't make a secure connection. Check your connection (or your network's sign-in page) and try again."
+    is java.io.IOException -> "The connection dropped. Check your connection and try again."
+    is kotlinx.serialization.SerializationException -> "Bluesky sent something Butterflyfish couldn't read. Try again, or update Butterflyfish."
+    else -> e.message?.takeIf { it.isNotBlank() } ?: "Something went wrong. Try again."
 }
 
 // ---------------- Paged lists ----------------
@@ -786,6 +794,21 @@ class ProfileVm(private val actor: String, private val owner: String, private va
 }
 
 /** A profile's top, laid out like Bluesky's: banner, avatar, buttons, name and badges, counts, bio, Profile Links. */
+/**
+ * Follows or unfollows from any screen, through the shared [io.github.shoalapps.blobfish.data.Engagement]
+ * record, in the app's own scope so leaving the screen doesn't cancel it.
+ */
+internal fun toggleFollow(context: android.content.Context, a: io.github.shoalapps.blobfish.data.Author, server: String?) {
+    val app = context.applicationContext
+    val twitter = TwitterParse.isTwitter(a.did)
+    Graph.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+        io.github.shoalapps.blobfish.data.Engagement.toggleFollow(a.did, server,
+            create = { if (twitter) { if (!XBridge.follow(a.handle, true)) error("Couldn't reach ${XBrand.name}"); "x-follow" } else Graph.atp.follow(a.did) },
+            delete = { was -> if (twitter) { if (!XBridge.follow(a.handle, false)) error("Couldn't reach ${XBrand.name}") } else Graph.atp.undo(was) },
+        )?.let { toast(app, friendly(it)) }
+    }
+}
+
 @Composable
 private fun ProfileHeader(p: Profile, nav: Nav, followed: String?, isMe: Boolean, signedIn: Boolean, onFollow: () -> Unit, onUnfollow: () -> Unit) {
     val context = LocalContext.current
@@ -909,7 +932,7 @@ fun ProfileScreen(actor: String, nav: Nav, onBack: (() -> Unit)?, onSettings: ((
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val session by Graph.store.session.collectAsState()
-    var followed by remember(vm.profile) { mutableStateOf(vm.profile?.myFollow) }
+    val followed = vm.profile?.let { io.github.shoalapps.blobfish.data.Engagement.follow(it.author.did, it.myFollow).record }
     Scaffold(
         contentWindowInsets = WindowInsets(0),
         topBar = {
@@ -937,21 +960,8 @@ fun ProfileScreen(actor: String, nav: Nav, onBack: (() -> Unit)?, onSettings: ((
                 ProfileHeader(p, nav, followed,
                     isMe = if (twitter) XBridge.me.equals(p.author.handle, ignoreCase = true) else session?.did == p.author.did,
                     signedIn = if (twitter) XView.signedIn else session != null,
-                    onFollow = {
-                        followed = "pending"
-                        scope.launch {
-                            runCatching { followed = if (twitter) { if (!XBridge.follow(p.author.handle, true)) error("Couldn't reach ${XBrand.name}"); "x-follow" } else Graph.atp.follow(p.author.did) }
-                                .onFailure { followed = null; toast(context, friendly(it)) }
-                        }
-                    },
-                    onUnfollow = {
-                        val was = followed!!
-                        followed = null
-                        scope.launch {
-                            runCatching { if (twitter) { if (!XBridge.follow(p.author.handle, false)) error("Couldn't reach ${XBrand.name}") } else Graph.atp.undo(was) }
-                                .onFailure { followed = was; toast(context, friendly(it)) }
-                        }
-                    },
+                    onFollow = { toggleFollow(context, p.author, p.myFollow) },
+                    onUnfollow = { toggleFollow(context, p.author, p.myFollow) },
                 )
             }
             item(key = "tabs") {

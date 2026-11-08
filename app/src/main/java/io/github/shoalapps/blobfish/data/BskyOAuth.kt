@@ -110,7 +110,7 @@ object BskyOAuth {
                 val o = runCatching { json.parseToJsonElement(r.body!!.string()) as JsonObject }.getOrDefault(JsonObject(emptyMap()))
                 if (r.isSuccessful) return o
                 if (o.s("error") == "use_dpop_nonce" && attempt == 0) return@repeat
-                throw AtpException(r.code, o.s("error_description") ?: o.s("error") ?: "Bluesky said ${r.code}")
+                throw AtpException(r.code, o.s("error_description") ?: o.s("error") ?: "Bluesky said ${r.code}", o.s("error"))
             }
         }
         throw AtpException(400, "Bluesky didn't accept the sign-in")

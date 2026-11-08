@@ -97,6 +97,7 @@ class Store(context: Context) {
         val previous = _session.value
         if (previous?.let { it.did + "|" + it.pds } != s?.let { it.did + "|" + it.pds }) {
             _feedGeneration.value += 1
+            Engagement.clear()
             if (s == null && previous != null) {
                 val owner = "bluesky|" + previous.did + "|" + previous.pds
                 clearFeedAnchors(owner, waitForDisk = false)

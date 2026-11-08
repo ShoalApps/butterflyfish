@@ -88,7 +88,7 @@ class OfflineStore(context: Context) {
         if (writes.value.none { it.id == id && it.state == "sending" }) state(id, null)
     }
     suspend fun enqueue(endpoint: String, body: JsonObject) {
-        val owner = owner() ?: throw IOException("Sign in before saving an action")
+        val owner = owner() ?: throw OfflineMessage("Sign in before saving an action")
         check(body["repo"] == null || body["repo"]?.jsonPrimitive?.content == Graph.store.session.value?.did)
         synchronized(this) { save(RecordKeys.add(writes.value, SavedWrite(owner = owner, endpoint = endpoint, body = body))) }
         schedule()
@@ -172,7 +172,7 @@ class OfflineStore(context: Context) {
     }
     @Synchronized fun cached(key: String, namespace: String): JsonObject = runCatching {
         json.parseToJsonElement(path(key, namespace).readText()).jsonObject
-    }.getOrElse { throw IOException("No saved copy of this view yet. Open it while online first.") }
+    }.getOrElse { throw OfflineMessage("No saved copy of this view yet. Open it while online first.") }
     @Synchronized fun remember(key: String, value: JsonObject, namespace: String) {
         val data = value.toString()
         if (data.length > 2_000_000) return
@@ -196,3 +196,6 @@ class BlueskySyncWorker(context: Context, params: androidx.work.WorkerParameters
             Result.retry() else Result.success()
     }
 }
+
+/** An offline problem whose message is written for people, so screens show it as it is. */
+class OfflineMessage(message: String) : IOException(message)

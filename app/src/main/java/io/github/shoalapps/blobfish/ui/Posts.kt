@@ -577,38 +577,38 @@ private fun Actions(post: Post, nav: Nav) {
     val twitter = io.github.shoalapps.blobfish.data.TwitterParse.isTwitter(post.uri)
     val xId = post.uri.removePrefix(io.github.shoalapps.blobfish.data.TwitterParse.PREFIX)
     val signedIn = if (twitter) XView.signedIn else Graph.store.session.collectAsState().value != null
-    var likeUri by remember(post.uri) { mutableStateOf(post.myLike) }
-    var likes by remember(post.uri) { mutableIntStateOf(post.likeCount) }
-    var repostUri by remember(post.uri) { mutableStateOf(post.myRepost) }
-    var reposts by remember(post.uri) { mutableIntStateOf(post.repostCount) }
+    // Shared with every other screen showing this post, so they all agree (see Engagement).
+    val like = io.github.shoalapps.blobfish.data.Engagement.like(post)
+    val repost = io.github.shoalapps.blobfish.data.Engagement.repost(post)
+    val app = context.applicationContext
+    // Sent from the app's own scope: leaving the screen mustn't cancel a like halfway.
+    fun send(block: suspend () -> Throwable?, fallback: String) {
+        io.github.shoalapps.blobfish.Graph.scope.launch(kotlinx.coroutines.Dispatchers.Main) { block()?.let { toast(app, friendly(it).ifBlank { fallback }) } }
+    }
     Row(Modifier.fillMaxWidth().padding(top = 6.dp).testTag("post-actions"), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         val canReply = twitter || !post.replyDisabled
         Action(Icons.Outlined.ChatBubbleOutline, post.replyCount, false,
             if (canReply) "Reply" else "Replies restricted", enabled = canReply) {
             if (signedIn) nav.reply(post) else toast(context, "Sign in to reply")
         }
-        Action(Icons.Rounded.Repeat, reposts, repostUri != null, "Repost") {
+        Action(Icons.Rounded.Repeat, repost.count, repost.on, "Repost") {
             if (!signedIn) { toast(context, "Sign in to repost"); return@Action }
-            val was = repostUri
-            if (was == null) { reposts++; repostUri = "pending" } else { reposts--; repostUri = null }
-            scope.launch {
-                runCatching {
+            send({
+                io.github.shoalapps.blobfish.data.Engagement.toggleRepost(post,
                     // Twitter: press its own repost (or undo) button and confirm.
-                    if (twitter) { if (!XBridge.repost(xId, was == null)) error("Couldn't repost on ${XBrand.name}; try again"); if (was == null) repostUri = "x-repost" }
-                    else if (was == null) repostUri = Graph.atp.repost(post) else Graph.atp.undo(was)
-                }.onFailure { toast(context, it.message ?: "Couldn't repost"); if (was == null) { reposts--; repostUri = null } else { reposts++; repostUri = was } }
-            }
+                    create = { if (twitter) { if (!XBridge.repost(xId, true)) error("Couldn't repost on ${XBrand.name}; try again"); "x-repost" } else Graph.atp.repost(post) },
+                    delete = { was -> if (twitter) { if (!XBridge.repost(xId, false)) error("Couldn't undo the repost on ${XBrand.name}; try again") } else Graph.atp.undo(was) },
+                )
+            }, "Couldn't repost")
         }
-        Action(if (likeUri != null) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder, likes, likeUri != null, "Like", activeColor = Color(0xFFE5486B)) {
+        Action(if (like.on) Icons.Rounded.Favorite else Icons.Outlined.FavoriteBorder, like.count, like.on, "Like", activeColor = Color(0xFFE5486B)) {
             if (!signedIn) { toast(context, "Sign in to like"); return@Action }
-            val was = likeUri
-            if (was == null) { likes++; likeUri = "pending" } else { likes--; likeUri = null }
-            scope.launch {
-                runCatching {
-                    if (twitter) { if (!XBridge.like(xId, was == null)) error("Couldn't like on ${XBrand.name}; try again"); if (was == null) likeUri = "x-like" }
-                    else if (was == null) likeUri = Graph.atp.like(post) else Graph.atp.undo(was)
-                }.onFailure { toast(context, it.message ?: "Couldn't like"); if (was == null) { likes--; likeUri = null } else { likes++; likeUri = was } }
-            }
+            send({
+                io.github.shoalapps.blobfish.data.Engagement.toggleLike(post,
+                    create = { if (twitter) { if (!XBridge.like(xId, true)) error("Couldn't like on ${XBrand.name}; try again"); "x-like" } else Graph.atp.like(post) },
+                    delete = { was -> if (twitter) { if (!XBridge.like(xId, false)) error("Couldn't unlike on ${XBrand.name}; try again") } else Graph.atp.undo(was) },
+                )
+            }, "Couldn't like")
         }
         IconButton(onClick = {
             val link = if (twitter) "https://x.com/${post.author.handle}/status/$xId" else webUrl(post)
