@@ -52,8 +52,8 @@ fun XAccountIdentity() {
     androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
         AccountAvatar(me?.avatar, bluesky = false, size = androidx.compose.ui.unit.Dp(40f))
         androidx.compose.foundation.layout.Column {
-            io.github.shoalapps.blobfish.LocalisedText(me?.name ?: "X account", localise = false)
-            io.github.shoalapps.blobfish.LocalisedText(me?.let { "@${it.handle}" } ?: "Account details not available yet", localise = false)
+            io.github.shoalapps.common.ui.LocalisedText(me?.name ?: "X account", localise = false)
+            io.github.shoalapps.common.ui.LocalisedText(me?.let { "@${it.handle}" } ?: "Account details not available yet", localise = false)
         }
     }
 }

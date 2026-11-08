@@ -13,7 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
-import io.github.shoalapps.blobfish.LocalisedText as Text
+import io.github.shoalapps.common.ui.LocalisedText as Text
 import kotlinx.coroutines.delay
 
 @Composable

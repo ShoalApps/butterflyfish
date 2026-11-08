@@ -14,7 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.shoalapps.blobfish.data.BlueskyCompatibility
 import io.github.shoalapps.blobfish.data.CompatibilityRuntime
-import io.github.shoalapps.blobfish.LocalisedText as Text
+import io.github.shoalapps.common.ui.LocalisedText as Text
 
 /** Offline information bundled with this version; diagnostics contain type names and counts only. */
 @Composable

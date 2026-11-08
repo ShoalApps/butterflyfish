@@ -33,8 +33,8 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
-import io.github.shoalapps.blobfish.LocalisedText as Text
-import io.github.shoalapps.blobfish.LocalisedIcon as Icon
+import io.github.shoalapps.common.ui.LocalisedText as Text
+import io.github.shoalapps.common.ui.LocalisedIcon as Icon
 import io.github.shoalapps.blobfish.data.PlayableMedia
 
 /** Streams are prepared only after a tap. No feed autoplay, prefetch or hidden audio. */

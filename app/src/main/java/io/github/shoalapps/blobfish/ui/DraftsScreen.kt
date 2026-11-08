@@ -14,8 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.shoalapps.blobfish.Graph
-import io.github.shoalapps.blobfish.LocalisedIcon as Icon
-import io.github.shoalapps.blobfish.LocalisedText as Text
+import io.github.shoalapps.common.ui.LocalisedIcon as Icon
+import io.github.shoalapps.common.ui.LocalisedText as Text
 import io.github.shoalapps.blobfish.data.Draft
 import io.github.shoalapps.blobfish.data.Post
 import kotlinx.coroutines.CancellationException

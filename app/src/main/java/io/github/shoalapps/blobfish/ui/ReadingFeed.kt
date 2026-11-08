@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.shoalapps.blobfish.Graph
-import io.github.shoalapps.blobfish.LocalisedText as Text
+import io.github.shoalapps.common.ui.LocalisedText as Text
 import io.github.shoalapps.blobfish.data.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.distinctUntilChanged

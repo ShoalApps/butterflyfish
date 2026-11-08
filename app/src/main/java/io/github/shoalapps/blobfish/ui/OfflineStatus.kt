@@ -2,7 +2,7 @@ package io.github.shoalapps.blobfish.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
-import io.github.shoalapps.blobfish.LocalisedText as Text
+import io.github.shoalapps.common.ui.LocalisedText as Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
