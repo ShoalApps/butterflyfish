@@ -107,7 +107,9 @@ fun PeopleScreen(kind: String, actor: String, nav: Nav, onBack: () -> Unit) {
         if (narrowing && vm.hasMore && !vm.loadingMore && !vm.loading && vm.items.size < 10_000) vm.loadMore()
     }
     val q = query.trim().removePrefix("@").lowercase()
-    val shown = remember(vm.items, q, filter, changed.toMap()) {
+    // Mutuals and "not following back" depend on your follows, so the list updates when one changes.
+    val follows = if (filter == PeopleFilter.MUTUALS || filter == PeopleFilter.NOT_BACK) vm.items.map(following) else null
+    val shown = remember(vm.items, q, filter, follows) {
         vm.items.filter { a ->
             (q.isEmpty() || a.handle.lowercase().contains(q) || a.displayName.orEmpty().lowercase().contains(q) || a.description.orEmpty().lowercase().contains(q)) &&
                 when (filter) {
