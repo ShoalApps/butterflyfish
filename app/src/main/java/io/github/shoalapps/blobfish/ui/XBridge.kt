@@ -34,6 +34,8 @@ object XBridge {
     private val latestAt = mutableMapOf<String, Long>()
     @Volatile private var lastHomeOp: String? = null
     private const val RETRY_TIMEOUT_MS = 15_000L
+    /** An in-page move answers in well under this; past it, the page is loaded in full instead. */
+    private const val IN_PAGE_TIMEOUT_MS = 4_000L
 
     /** The [op] response that arrived in the last [maxAgeMs], if any (the website often loads several at once). */
     private fun fresh(op: String, maxAgeMs: Long): JsonObject? = synchronized(this) {
@@ -102,25 +104,75 @@ object XBridge {
         request(listOf(op), timeoutMs, cachedOk, action)
 
     /** As above, for data the website has had several names for ([ops], any of them). */
-    private suspend fun request(ops: List<String>, timeoutMs: Long = 25_000, cachedOk: Boolean = false, action: suspend (WebView) -> Unit): JsonObject = lock.withLock {
+    private suspend fun request(ops: List<String>, timeoutMs: Long = 25_000, cachedOk: Boolean = false, action: suspend (WebView) -> Unit): JsonObject =
+        await(ops, cachedOk, timeout = { timeoutMs }, retry = { !cachedOk }, action = action)
+            // A list the website showed from its cache is still the right list; a post or profile may not be.
+            ?: (if (cachedOk) synchronized(this) { ops.firstNotNullOfOrNull { latest[it] } } else null)
+            ?: throw noAnswer()
+
+    private fun noAnswer() = AtpException(504, if (XView.signedIn) "${XBrand.name} didn't answer. Try again in a moment."
+        else "Sign in to ${XBrand.name} to see this.")
+
+    /**
+     * Does [action] and waits for the next of [ops], or null. [timeout] and [retry] are asked after
+     * the action, since what it did (a quick in-page move or a full load) decides how long to wait.
+     */
+    private suspend fun await(ops: List<String>, cachedOk: Boolean, timeout: () -> Long, retry: () -> Boolean, action: suspend (WebView) -> Unit): JsonObject? = lock.withLock {
         lastHomeOp = null
         val d = CompletableDeferred<JsonObject>()
         synchronized(this) { ops.forEach { waiting[it] = d } }
         val v = view()
         if (io.github.shoalapps.blobfish.BuildConfig.DEBUG) android.util.Log.d("XBridge", "want $ops")
         withContext(Dispatchers.Main) { action(v) }
-        var got = withTimeoutOrNull(timeoutMs) { d.await() }
+        var got = withTimeoutOrNull(timeout()) { d.await() }
         // A page that stalled usually answers once reloaded, so it gets one more go before giving up.
-        if (got == null && !cachedOk) {
+        if (got == null && !cachedOk && retry()) {
             withContext(Dispatchers.Main) { v.reload() }
             got = withTimeoutOrNull(RETRY_TIMEOUT_MS) { d.await() }
         }
         synchronized(this) { ops.forEach { if (waiting[it] === d) waiting.remove(it) } }
-        // A list the website showed from its cache is still the right list; a post or profile may not be.
-        got ?: (if (cachedOk) synchronized(this) { ops.firstNotNullOfOrNull { latest[it] } } else null)
-            ?: throw AtpException(504, if (XView.signedIn) "${XBrand.name} didn't answer. Try again in a moment."
-                else "Sign in to ${XBrand.name} to see this.")
+        got
     }
+
+    /**
+     * Opens [path] the way X's own site moves between pages: inside the website already running,
+     * so only the new data is fetched instead of the whole website again. If that can't be done,
+     * doesn't answer quickly, or brings the wrong thing ([accept] says no), the page is loaded in
+     * full, as it always was.
+     */
+    private suspend fun open(ops: List<String>, path: String, accept: (JsonObject) -> Boolean = { true }): JsonObject {
+        var inPage = false
+        val started = android.os.SystemClock.elapsedRealtime()
+        val first = await(ops, cachedOk = false, timeout = { if (inPage) IN_PAGE_TIMEOUT_MS else 25_000L }, retry = { !inPage }) { v -> inPage = go(v, path) }
+        if (io.github.shoalapps.blobfish.BuildConfig.DEBUG) android.util.Log.d("XTiming",
+            "$path ${if (inPage) "in-page" else "full load"} ${android.os.SystemClock.elapsedRealtime() - started}ms${if (first == null) " (no answer)" else ""}")
+        if (first != null && (accept(first) || !inPage)) return first
+        if (!inPage) throw noAnswer()
+        return request(ops) { v -> v.loadUrl("https://x.com$path") }
+    }
+
+    /** Moves the website to [path] in place, or loads it in full; returns whether it moved in place. */
+    private suspend fun go(v: WebView, path: String): Boolean {
+        val d = CompletableDeferred<String?>()
+        v.evaluateJavascript(IN_PAGE_MOVE.replace("__PATH__", org.json.JSONObject.quote(path))) { d.complete(it) }
+        val inPage = d.await()?.trim('"') == "moved"
+        if (!inPage) v.loadUrl("https://x.com$path")
+        return inPage
+    }
+
+    /**
+     * Tells the website's router about a new address, as its own links do. Only on X's running
+     * site, once it has started, and never for the page it's already on (which wouldn't refetch).
+     */
+    private const val IN_PAGE_MOVE = """(function (p) {
+      try {
+        if (location.origin !== 'https://x.com' || !window.__blobfishCapture || document.readyState === 'loading') return 'full';
+        if (location.pathname + location.search === p) return 'full';
+        history.pushState({}, '', p);
+        window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+        return 'moved';
+      } catch (e) { return 'full'; }
+    })(__PATH__)"""
 
     /** Asks the website for more of the list it's showing, by scrolling to its end. */
     private fun more(v: WebView) = v.evaluateJavascript("window.scrollTo(0, document.body.scrollHeight)", null)
@@ -152,7 +204,7 @@ object XBridge {
 
     /** Someone's profile, by handle. */
     suspend fun profile(handle: String): Profile {
-        val root = request("UserByScreenName") { v -> v.loadUrl("https://x.com/$handle") }
+        val root = open(listOf("UserByScreenName"), "/$handle") { TwitterParse.profile(it)?.author?.handle.equals(handle, ignoreCase = true) }
         return TwitterParse.profile(root) ?: throw AtpException(404, "Couldn't find @$handle on ${XBrand.name}")
     }
 
@@ -169,7 +221,7 @@ object XBridge {
         }
         val onPage = withContext(Dispatchers.Main) { view().url?.substringBefore('?')?.trimEnd('/')?.endsWith(path, ignoreCase = true) == true }
         val root = (if (cursor == null && onPage) ops.firstNotNullOfOrNull { fresh(it, 20_000) } else null)
-            ?: request(ops, cachedOk = cursor != null) { v -> if (cursor != null) more(v) else v.loadUrl("https://x.com$path") }
+            ?: if (cursor != null) request(ops, cachedOk = true) { v -> more(v) } else open(ops, path)
         return TwitterParse.timeline(root).let { if (it.items.isEmpty() && cursor != null) it.copy(cursor = null) else it }
     }
 
@@ -215,7 +267,7 @@ object XBridge {
 
     /** A post with the posts above it and its replies. */
     suspend fun thread(id: String): Thread {
-        val root = request("TweetDetail") { v -> v.loadUrl("https://x.com/i/status/$id") }
+        val root = open(listOf("TweetDetail"), "/i/status/$id") { TwitterParse.thread(it, id) != null }
         return TwitterParse.thread(root, id) ?: throw AtpException(404, "That post isn't available")
     }
 
@@ -305,9 +357,8 @@ object XBridge {
 
     /** Search, newest posts first. */
     suspend fun search(query: String, cursor: String?): Page<FeedItem> {
-        val root = request("SearchTimeline") { v ->
-            if (cursor != null) more(v) else v.loadUrl("https://x.com/search?q=" + java.net.URLEncoder.encode(query, "UTF-8") + "&src=typed_query&f=live")
-        }
+        val root = if (cursor != null) request("SearchTimeline") { v -> more(v) }
+            else open(listOf("SearchTimeline"), "/search?q=" + java.net.URLEncoder.encode(query, "UTF-8") + "&src=typed_query&f=live")
         return TwitterParse.timeline(root).let { if (it.items.isEmpty() && cursor != null) it.copy(cursor = null) else it }
     }
 }
