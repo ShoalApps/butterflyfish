@@ -2,6 +2,8 @@
 
 package io.github.shoalapps.blobfish.ui
 
+import io.github.shoalapps.common.expressive.*
+
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.clickable
@@ -1377,51 +1379,22 @@ private fun DraftComposer(owner: String?, replyTo: Post?, nav: Nav, draftId: Str
 
 // ---------------- Settings & About ----------------
 
-internal class GroupBuilder {
-    val rows = mutableListOf<@Composable (ListItemShapes) -> Unit>()
-    fun row(content: @Composable (ListItemShapes) -> Unit) { rows += content }
-}
+// The settings tiles come from the shared Shoal library (shoal-expressive), so every app looks the same.
+internal typealias GroupBuilder = io.github.shoalapps.common.expressive.SettingsGroupBuilder
 
-internal fun LazyListScope.group(title: String, build: GroupBuilder.() -> Unit) {
-    val rows = GroupBuilder().apply(build).rows
-    if (rows.isEmpty()) return
-    item(key = "t-$title") {
-        Text(title, style = MaterialTheme.typography.titleSmallEmphasized, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 32.dp, top = 24.dp, bottom = 8.dp))
-    }
-    rows.forEachIndexed { i, r ->
-        item(key = "$title-$i") {
-            Box(Modifier.padding(horizontal = 16.dp, vertical = ListItemDefaults.SegmentedGap / 2)) { r(ListItemDefaults.segmentedShapes(i, rows.size)) }
-        }
-    }
-}
+internal fun LazyListScope.group(title: String, build: GroupBuilder.() -> Unit) =
+    settingsGroup(title, build = build)
 
 @Composable
-internal fun tileColors() = ListItemDefaults.segmentedColors(
-    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-    selectedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-    selectedContentColor = MaterialTheme.colorScheme.onSurface,
-    selectedSupportingContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-)
+internal fun tileColors() = io.github.shoalapps.common.expressive.settingsTileColors()
 
 @Composable
-internal fun Toggle(title: String, body: String?, checked: Boolean, shapes: ListItemShapes, onChange: (Boolean) -> Unit) {
-    SegmentedListItem(
-        checked = checked, onCheckedChange = onChange, shapes = shapes,
-        supportingContent = body?.let { { Text(it) } },
-        trailingContent = { Switch(checked = checked, onCheckedChange = null) },
-        colors = tileColors(),
-    ) { Text(title) }
-}
+internal fun Toggle(title: String, body: String?, checked: Boolean, shapes: ListItemShapes, onChange: (Boolean) -> Unit) =
+    io.github.shoalapps.common.expressive.SettingsToggle(title, body, checked, shapes, onChange = onChange)
 
 @Composable
-internal fun Link(title: String, body: String?, shapes: ListItemShapes, onClick: () -> Unit) {
-    SegmentedListItem(
-        onClick = onClick, shapes = shapes,
-        supportingContent = body?.let { { Text(it) } },
-        trailingContent = { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null) },
-        colors = tileColors(),
-    ) { Text(title) }
-}
+internal fun Link(title: String, body: String?, shapes: ListItemShapes, onClick: () -> Unit) =
+    io.github.shoalapps.common.expressive.SettingsLink(title, body, shapes, onClick = onClick)
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onSignIn: () -> Unit, onModeration: () -> Unit) {
