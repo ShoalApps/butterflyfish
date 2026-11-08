@@ -229,7 +229,9 @@ object XBridge {
     suspend fun follow(handle: String, on: Boolean): Boolean = lock.withLock {
         withContext(Dispatchers.Main) {
             val v = view()
-            if (!loadAndAwait(v, "https://x.com/$handle", "/$handle")) return@withContext false
+            // Already on their profile, with its follow button showing: press it there.
+            val here = "location.pathname.toLowerCase() === '/${handle.lowercase()}' && !!document.querySelector('[data-testid=primaryColumn] [data-testid$=follow]')"
+            if (!showing(v, here) && !loadAndAwait(v, "https://x.com/$handle", "/$handle")) return@withContext false
             pressOnPage(v, if (on) listOf("-follow") else listOf("-unfollow", "confirmationSheetConfirm"))
         }
     }
@@ -297,9 +299,14 @@ object XBridge {
     suspend fun press(id: String, vararg testIds: String, expect: String? = null): Boolean = lock.withLock {
         withContext(Dispatchers.Main) {
             val v = view()
+            // Already showing (the timeline or thread the website is on): press it there, without
+            // loading its page. Only a post whose own timestamp, its first, links to exactly this
+            // post counts, so a post quoting it is never pressed instead.
+            val exactly = postOnPage(id)
+            if (showing(v, "!!($exactly)")) return@withContext pressOnPage(v, testIds.toList(), exactly, exact = true, expect = expect)
             if (!loadAndAwait(v, "https://x.com/i/status/$id", "/status/$id")) return@withContext false
             // The post itself, not the ones above it or the replies: its timestamp links to it.
-            val scope = "[...document.querySelectorAll('article')].find(a => a.querySelector('a[href*=\"/status/$id\"] time')) || document.querySelector('article')"
+            val scope = "($exactly) || [...document.querySelectorAll('article')].find(a => a.querySelector('a[href*=\"/status/$id\"] time')) || document.querySelector('article')"
             pressOnPage(v, testIds.toList(), scope, exact = true, expect = expect)
         }
     }
@@ -310,6 +317,20 @@ object XBridge {
     /** Reposts a post or undoes it (each with its confirmation); true once the website shows it done. */
     suspend fun repost(id: String, on: Boolean) =
         press(id, if (on) "retweet" else "unretweet", if (on) "retweetConfirm" else "unretweetConfirm", expect = if (on) "unretweet" else "retweet")
+
+    /** The post [id] on the page as shown, found by its own (first) timestamp link, or null. [id] is digits only. */
+    private fun postOnPage(id: String): String {
+        val digits = id.filter(Char::isDigit)
+        return "[...document.querySelectorAll('article')].find(a => { const t = a.querySelector('time'); const l = t && t.closest('a'); " +
+            "return !!l && new RegExp('/status/$digits(?:[/?#]|$)').test(l.getAttribute('href') || ''); })"
+    }
+
+    /** Whether [condition] (JavaScript) holds on the page now. */
+    private suspend fun showing(v: WebView, condition: String): Boolean {
+        val d = CompletableDeferred<String?>()
+        v.evaluateJavascript("(function () { try { return !!($condition); } catch (e) { return false; } })()") { d.complete(it) }
+        return d.await() == "true"
+    }
 
     /** Loads [url] and waits (up to 15 s) for that new page, with a post or profile on it, to be showing. */
     private suspend fun loadAndAwait(v: WebView, url: String, fragment: String): Boolean {
