@@ -39,6 +39,8 @@
   "Bluesky didn't say who signed in": "Bluesky didn't say who signed in",
   "Bluesky didn't start the sign-in": "Bluesky didn't start the sign-in",
   "Bluesky had a problem": "Bluesky had a problem",
+  "Bluesky had a problem ({0}). Try again in a moment.": "Bluesky had a problem ({0}). Try again in a moment.",
+  "Bluesky is busy right now. Try again in a moment.": "Bluesky is busy right now. Try again in a moment.",
   "Bluesky is taking too long to answer. Try again.": "Bluesky is taking too long to answer. Try again.",
   "Bluesky said {0}": "Bluesky said {0}",
   "Bluesky's sign-in isn't available": "Bluesky's sign-in isn't available",
@@ -281,6 +283,7 @@
   "Sign in to repost": "Sign in to repost",
   "Sign in to search posts. People search works signed out.": "Sign in to search posts. People search works signed out.",
   "Sign in to see who's liked, reposted and replied to you.": "Sign in to see who's liked, reposted and replied to you.",
+  "Sign in to {0} to see this.": "Sign in to {0} to see this.",
   "Sign in with Bluesky": "Sign in with Bluesky",
   "Sign in with app password": "Sign in with app password",
   "Sign in with your Bluesky account to post, reply, like and see your timeline.": "Sign in with your Bluesky account to post, reply, like and see your timeline.",
@@ -385,6 +388,7 @@
   "window.scrollTo(0, document.body.scrollHeight)": "window.scrollTo(0, document.body.scrollHeight)",
   "x.com, signed in on its own page": "x.com, signed in on its own page",
   "{0} didn't answer. Check you're signed in, then try again.": "{0} didn't answer. Check you're signed in, then try again.",
+  "{0} didn't answer. Try again in a moment.": "{0} didn't answer. Try again in a moment.",
   "{0} hidden posts": "{0} hidden posts",
   "{0} people": "{0} people"
 }

@@ -131,7 +131,7 @@ import io.github.shoalapps.common.ui.SupportCard
 fun friendly(e: Throwable): String = when (e) {
     is AtpException -> e.message ?: "Bluesky had a problem"
     is java.net.UnknownHostException, is java.net.ConnectException -> "You're offline. Check your connection and try again."
-    is java.net.SocketTimeoutException -> "Bluesky is taking too long to answer. Try again."
+    is java.net.SocketTimeoutException, is java.io.InterruptedIOException -> "Bluesky is taking too long to answer. Try again."
     else -> e.message ?: "Something went wrong"
 }
 

@@ -33,6 +33,7 @@ object XBridge {
     private val latest = mutableMapOf<String, JsonObject>()
     private val latestAt = mutableMapOf<String, Long>()
     @Volatile private var lastHomeOp: String? = null
+    private const val RETRY_TIMEOUT_MS = 15_000L
 
     /** The [op] response that arrived in the last [maxAgeMs], if any (the website often loads several at once). */
     private fun fresh(op: String, maxAgeMs: Long): JsonObject? = synchronized(this) {
@@ -54,6 +55,23 @@ object XBridge {
             });
             return send.apply(this, arguments);
           };
+          // The website loads some data with fetch rather than XMLHttpRequest; those are passed on too.
+          const pass = (url, status, text) => {
+            if (!window.BlobfishX || status !== 200) return;
+            const m = url.match(/\/graphql\/[^/]+\/(\w+)/);
+            if (m) window.BlobfishX.onData(m[1], text);
+            else if (/\/1\.1\/account\/settings\.json/.test(url)) window.BlobfishX.onData('AccountSettings', text);
+          };
+          if (window.fetch) {
+            const fetchOriginal = window.fetch;
+            window.fetch = function (input) {
+              const url = String((input && input.url) || input);
+              return fetchOriginal.apply(this, arguments).then((r) => {
+                if (/\/graphql\/|\/1\.1\/account\/settings\.json/.test(url)) r.clone().text().then((t) => pass(url, r.status, t), () => {});
+                return r;
+              });
+            };
+          }
         })();
     """
 
@@ -91,11 +109,17 @@ object XBridge {
         val v = view()
         if (io.github.shoalapps.blobfish.BuildConfig.DEBUG) android.util.Log.d("XBridge", "want $ops")
         withContext(Dispatchers.Main) { action(v) }
-        val got = withTimeoutOrNull(timeoutMs) { d.await() }
+        var got = withTimeoutOrNull(timeoutMs) { d.await() }
+        // A page that stalled usually answers once reloaded, so it gets one more go before giving up.
+        if (got == null && !cachedOk) {
+            withContext(Dispatchers.Main) { v.reload() }
+            got = withTimeoutOrNull(RETRY_TIMEOUT_MS) { d.await() }
+        }
         synchronized(this) { ops.forEach { if (waiting[it] === d) waiting.remove(it) } }
         // A list the website showed from its cache is still the right list; a post or profile may not be.
         got ?: (if (cachedOk) synchronized(this) { ops.firstNotNullOfOrNull { latest[it] } } else null)
-            ?: throw AtpException(504, "${XBrand.name} didn't answer. Check you're signed in, then try again.")
+            ?: throw AtpException(504, if (XView.signedIn) "${XBrand.name} didn't answer. Try again in a moment."
+                else "Sign in to ${XBrand.name} to see this.")
     }
 
     /** Asks the website for more of the list it's showing, by scrolling to its end. */

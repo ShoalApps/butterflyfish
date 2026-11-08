@@ -143,6 +143,27 @@ data class Session(val did: String, val handle: String, val access: String, val 
 
 class AtpException(val status: Int, message: String) : Exception(message)
 
+/**
+ * Bluesky's servers sometimes time out (502, 503, 504) under load and answer fine a moment later.
+ * Reads are tried again after a short pause; posts and other writes never are, so nothing is sent twice.
+ */
+object Transient {
+    /** Pauses before each retry of a read. */
+    val delaysMs = listOf(1_000L, 3_000L)
+
+    fun retryable(code: Int) = code == 502 || code == 503 || code == 504
+
+    fun shouldRetry(method: String, code: Int?, attempt: Int) =
+        method == "GET" && attempt < delaysMs.size && (code == null || retryable(code))
+
+    /** What to show when a server gave no message of its own. */
+    fun message(code: Int) = when {
+        retryable(code) -> "Bluesky is busy right now. Try again in a moment."
+        code >= 500 -> "Bluesky had a problem ($code). Try again in a moment."
+        else -> "Bluesky said $code"
+    }
+}
+
 // ---------------- Client ----------------
 
 /**
@@ -166,6 +187,7 @@ class Atp(private val http: OkHttpClient, private val store: Store) {
         retried: Boolean = false,
         sendQueued: Boolean = false,
         expectedOwner: String? = null,
+        attempt: Int = 0,
     ): JsonObject = withContext(Dispatchers.IO) {
         if (method == "POST" && !sendQueued && nsid in setOf("app.bsky.actor.putPreferences",
             "app.bsky.graph.muteActor", "app.bsky.graph.unmuteActor", "com.atproto.repo.putRecord")) {
@@ -201,7 +223,22 @@ class Atp(private val http: OkHttpClient, private val store: Store) {
             if (s != null && appView.isNotBlank() && nsid.startsWith("app.bsky.")) header("atproto-proxy", "did:web:${appView.toHttpUrl().host}#bsky_appview")
             if (method == "POST") post((body ?: JsonObject(emptyMap())).toString().toRequestBody("application/json".toMediaType()))
         }.build()
-        http.newCall(req).execute().use { resp ->
+        // A fresh request (and DPoP proof) for each retry, so a busy server can't turn into a replay.
+        suspend fun again(): JsonObject {
+            kotlinx.coroutines.delay(Transient.delaysMs[attempt])
+            return call(method, nsid, params, body, auth, retried, sendQueued, expectedOwner, attempt + 1)
+        }
+        val response = try {
+            http.newCall(req).execute()
+        } catch (e: java.io.InterruptedIOException) {
+            if (Transient.shouldRetry(method, null, attempt)) return@withContext again()
+            throw e
+        }
+        if (Transient.retryable(response.code) && Transient.shouldRetry(method, response.code, attempt)) {
+            response.close()
+            return@withContext again()
+        }
+        response.use { resp ->
             val text = resp.body?.string().orEmpty()
             val obj = runCatching { json.parseToJsonElement(text) as JsonObject }.getOrDefault(JsonObject(emptyMap()))
             if (s != null && s.oauth) {
@@ -219,7 +256,7 @@ class Atp(private val http: OkHttpClient, private val store: Store) {
                 refreshSession()
                 return@withContext call(method, nsid, params, body, auth, retried = true, sendQueued = sendQueued, expectedOwner = expectedOwner)
             }
-            if (!resp.isSuccessful) throw AtpException(resp.code, obj.str("message") ?: obj.str("error") ?: "Bluesky said ${resp.code}")
+            if (!resp.isSuccessful) throw AtpException(resp.code, obj.str("message") ?: obj.str("error") ?: Transient.message(resp.code))
             if (method == "GET") Graph.offline.remember(cacheKey, obj, namespace)
             obj
         }
@@ -249,7 +286,7 @@ class Atp(private val http: OkHttpClient, private val store: Store) {
         val req = Request.Builder().url("$server/xrpc/$nsid").post(body.toString().toRequestBody("application/json".toMediaType())).build()
         http.newCall(req).execute().use { resp ->
             val obj = runCatching { json.parseToJsonElement(resp.body?.string().orEmpty()) as JsonObject }.getOrDefault(JsonObject(emptyMap()))
-            if (!resp.isSuccessful) throw AtpException(resp.code, obj.str("message") ?: obj.str("error") ?: "The server said ${resp.code}")
+            if (!resp.isSuccessful) throw AtpException(resp.code, obj.str("message") ?: obj.str("error") ?: if (resp.code >= 500) Transient.message(resp.code) else "The server said ${resp.code}")
             obj
         }
     }
