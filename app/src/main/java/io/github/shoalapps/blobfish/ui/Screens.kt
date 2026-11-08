@@ -1438,7 +1438,7 @@ fun SettingsScreen(onBack: () -> Unit, onSignIn: () -> Unit, onModeration: () ->
             group("Account") {
                 if (s.service == "x") {
                     row { sh -> Link(XIdentity.author?.let { "Signed in as @${it.handle}" } ?: "${XBrand.name} account", "Sign out of this account", sh) {
-                        XView.signOut()
+                        XAccounts.signOutCurrent()
                         store.updateSettings { it.copy(service = "bluesky") }
                     } }
                 } else {
@@ -1510,7 +1510,7 @@ fun SettingsScreen(onBack: () -> Unit, onSignIn: () -> Unit, onModeration: () ->
                 row { sh -> Toggle("Show my ${XBrand.name} account", "In the account switcher: x.com, signed in on its own page", s.showX, sh) { v -> store.updateSettings { it.copy(showX = v, service = if (!v) "bluesky" else it.service) } } }
                 row { sh -> Toggle("Call it Twitter", "Use Twitter's name and bird instead of X's", s.twitterNames, sh) { v -> store.updateSettings { it.copy(twitterNames = v) }; XView.rebrand() } }
                 if (s.service != "x" && s.showX && io.github.shoalapps.blobfish.ui.XView.signedIn) {
-                    row { sh -> Link("Sign out of ${XBrand.name}", null, sh) { io.github.shoalapps.blobfish.ui.XView.signOut() } }
+                    row { sh -> Link("Sign out of ${XBrand.name}", null, sh) { XAccounts.signOutCurrent() } }
                 }
             }
             group("Servers") {

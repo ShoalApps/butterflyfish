@@ -141,11 +141,8 @@ object XView {
 
     fun signOut() {
         XBridge.clearAccount()
-        val cm = CookieManager.getInstance()
-        cm.getCookie("https://x.com")?.split(';')?.map { it.substringBefore('=').trim() }?.forEach { name ->
-            cm.setCookie("https://x.com", "$name=; Max-Age=0; Path=/; Domain=.x.com")
-        }
-        cm.flush()
+        io.github.shoalapps.blobfish.data.Engagement.clear()
+        XAccounts.clearCookies()
         view?.loadUrl("https://x.com/home")
     }
 }

@@ -95,27 +95,48 @@ fun AccountSwitcher(onDismiss: () -> Unit, onSignInBluesky: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp)) {
             Text("Accounts", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            // Every account on this phone: tap one to use it. Bluesky accounts first, then X's.
             val s = session
-            AccountRow(
-                avatar = { AccountAvatar(Graph.myAvatar, bluesky = true, size = 48.dp) },
-                title = s?.handle?.let { "@$it" } ?: "Bluesky",
-                subtitle = if (s != null) "Bluesky" else "Not signed in",
+            val blueskyAccounts by Graph.store.accounts.collectAsState()
+            blueskyAccounts.forEach { a ->
+                val key = io.github.shoalapps.blobfish.data.AccountList.key(a)
+                val active = s != null && io.github.shoalapps.blobfish.data.AccountList.key(s) == key
+                AccountRow(
+                    avatar = { AccountAvatar(if (active) Graph.myAvatar else null, bluesky = true, size = 48.dp) },
+                    title = "@${a.handle}",
+                    subtitle = "Bluesky",
+                    current = settings.service != "x" && active,
+                ) { if (!active) Graph.switchAccount(key); use("bluesky") }
+            }
+            if (blueskyAccounts.isEmpty()) AccountRow(
+                avatar = { AccountAvatar(null, bluesky = true, size = 48.dp) },
+                title = "Bluesky",
+                subtitle = "Not signed in",
                 current = settings.service != "x",
-            ) { if (s == null) { onDismiss(); onSignInBluesky() } else use("bluesky") }
-            if (settings.showX) AccountRow(
-                avatar = { AccountAvatar(XIdentity.author?.avatar, bluesky = false, size = 48.dp) },
-                title = XIdentity.author?.name ?: XBrand.name,
-                subtitle = XIdentity.author?.let { "@${it.handle} · ${XBrand.name}" } ?: if (XView.signedIn) "Account details not available yet" else "Sign in on ${XBrand.name}'s own page",
-                current = settings.service == "x",
-            ) { use("x") }
-            if (s == null) Row(
-                Modifier.fillMaxWidth().clickable { onDismiss(); onSignInBluesky() }.padding(horizontal = 24.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Add, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            ) { onDismiss(); onSignInBluesky() }
+            if (settings.showX) {
+                val me = XIdentity.author
+                val saved = XAccounts.accounts
+                if (saved.isEmpty()) AccountRow(
+                    avatar = { AccountAvatar(me?.avatar, bluesky = false, size = 48.dp) },
+                    title = me?.name ?: XBrand.name,
+                    subtitle = me?.let { "@${it.handle} · ${XBrand.name}" } ?: if (XView.signedIn) "Account details not available yet" else "Sign in on ${XBrand.name}'s own page",
+                    current = settings.service == "x",
+                ) { use("x") }
+                else saved.forEach { a ->
+                    val active = XView.signedIn && me != null && XAccountList.same(me.handle, a.handle)
+                    AccountRow(
+                        avatar = { AccountAvatar(a.avatar, bluesky = false, size = 48.dp) },
+                        title = a.name ?: "@${a.handle}",
+                        subtitle = "@${a.handle} · ${XBrand.name}",
+                        current = settings.service == "x" && active,
+                    ) { if (!active) XAccounts.switchTo(a.handle); use("x") }
                 }
-                Text("Sign in to Bluesky", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 16.dp))
+            }
+            AddAccountRow(if (blueskyAccounts.isEmpty()) "Sign in to Bluesky" else "Add another Bluesky account") { onDismiss(); onSignInBluesky() }
+            // Another X account signs in on X's own page; the current one is kept to switch back to.
+            if (settings.showX && (XView.signedIn || XAccounts.accounts.isNotEmpty())) {
+                AddAccountRow("Add another ${XBrand.name} account") { XAccounts.startAdding(); use("x") }
             }
             HorizontalDivider(Modifier.padding(vertical = 8.dp, horizontal = 24.dp))
             SwitchRow("Show my ${XBrand.name} account", "x.com, signed in on its own page", settings.showX) { v ->
@@ -126,6 +147,19 @@ fun AccountSwitcher(onDismiss: () -> Unit, onSignInBluesky: () -> Unit) {
                 XView.rebrand()
             }
         }
+    }
+}
+
+@Composable
+private fun AddAccountRow(label: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
+            Icon(Icons.Rounded.Add, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+        }
+        Text(label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 16.dp))
     }
 }
 
@@ -167,7 +201,8 @@ private fun SwitchRow(title: String, body: String, checked: Boolean, onChange: (
  */
 @Composable
 fun XAccountScreen(onSwitch: () -> Unit) {
-    var signedIn by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(XView.signedIn) }
+    // Switching or adding an X account starts this screen again for the new account.
+    var signedIn by androidx.compose.runtime.remember(XAccounts.generation) { androidx.compose.runtime.mutableStateOf(XView.signedIn) }
     var firstFramePlaced by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(Unit) {
         androidx.compose.runtime.withFrameNanos { }
@@ -188,7 +223,8 @@ fun XAccountScreen(onSwitch: () -> Unit) {
         if (!firstFramePlaced) { CenterLoading(); return@Box }
         // The website, laid out (its lists load as they're scrolled) but invisible, behind everything.
         XHidden(Modifier.fillMaxSize().androidx_alpha0())
-        TwitterRoot(onSwitch)
+        // A different account gets its own screens, not the last one's feeds.
+        androidx.compose.runtime.key(XAccounts.generation) { TwitterRoot(onSwitch) }
     }
 }
 

@@ -20,6 +20,8 @@ object XIdentity {
         val old = author?.takeIf { it.handle.equals(value.handle, ignoreCase = true) }
         author = value.copy(displayName = value.displayName ?: old?.displayName, avatar = value.avatar ?: old?.avatar)
         prefs.edit().putString("handle", value.handle).putString("name", author?.displayName).putString("avatar", author?.avatar).apply()
+        // Signed in (or switched): keep this account in the list with its current cookies.
+        XAccounts.saveCurrent()
     }
     /**
      * Who the website says is signed in, read from the state it boots with. A read only: if X

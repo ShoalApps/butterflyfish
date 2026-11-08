@@ -33,6 +33,7 @@ class SocialApp : Application(), SingletonImageLoader.Factory {
         Graph.app = this
         io.github.shoalapps.blobfish.data.CompatibilityRuntime.init(this)
         io.github.shoalapps.blobfish.ui.XIdentity.init(this)
+        io.github.shoalapps.blobfish.ui.XAccounts.init(this)
         Graph.offline.init()
         Graph.syncModeration()
         Graph.syncProfile()
