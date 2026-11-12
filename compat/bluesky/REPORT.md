@@ -255,18 +255,7 @@ New data can flow automatically; new screens need building.
 
 ## Removed things
 
-- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup`
-- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.actor`
-- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.collection`
-- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.groupBy`
-- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.id`
-- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.indexedAt`
-- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.items`
-- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.subject`
-- `app.bsky.unspecced.getAtmosphereTimeline#activityItemOverflow`
-- `app.bsky.unspecced.getAtmosphereTimeline#activityItemOverflow.associatedProfiles`
-- `app.bsky.unspecced.getAtmosphereTimeline#activityItemOverflow.collection`
-- `app.bsky.unspecced.getAtmosphereTimeline#activityItemOverflow.count`
+None.
 
 ## Removed supported things
 
