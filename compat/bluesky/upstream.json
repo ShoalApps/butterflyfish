@@ -1,11 +1,11 @@
 {
-  "date": "2026-11-11",
+  "date": "2026-11-12",
   "atproto": {
     "repo": "bluesky-social/atproto",
-    "commit": "ec49bcb0d88202e92674fe910a0201f2a44db961"
+    "commit": "a44c12d63d3aa72cc78b367f37b186606b1caa8b"
   },
   "social-app": {
     "repo": "bluesky-social/social-app",
-    "commit": "16b20f9d85256878899a4a28edf55dccc01b4639"
+    "commit": "6bcd04cf619b6ed0855dc4781889b327f62cbe96"
   }
 }

@@ -221,9 +221,9 @@ New data can flow automatically; new screens need building.
 - `app.bsky.unspecced.defs#threadItemNoUnauthenticated`
 - `app.bsky.unspecced.defs#threadItemNotFound`
 - `app.bsky.unspecced.defs#threadItemPost`
-- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup`
+- `app.bsky.unspecced.getAtmosphereTimeline#activityActorGroup`
 - `app.bsky.unspecced.getAtmosphereTimeline#activityItem`
-- `app.bsky.unspecced.getAtmosphereTimeline#activityItemOverflow`
+- `app.bsky.unspecced.getAtmosphereTimeline#activitySubjectGroup`
 - `com.atproto.label.defs#selfLabels`
 
 ## New fields on records read
@@ -255,7 +255,18 @@ New data can flow automatically; new screens need building.
 
 ## Removed things
 
-None.
+- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup`
+- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.actor`
+- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.collection`
+- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.groupBy`
+- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.id`
+- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.indexedAt`
+- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.items`
+- `app.bsky.unspecced.getAtmosphereTimeline#activityGroup.subject`
+- `app.bsky.unspecced.getAtmosphereTimeline#activityItemOverflow`
+- `app.bsky.unspecced.getAtmosphereTimeline#activityItemOverflow.associatedProfiles`
+- `app.bsky.unspecced.getAtmosphereTimeline#activityItemOverflow.collection`
+- `app.bsky.unspecced.getAtmosphereTimeline#activityItemOverflow.count`
 
 ## Removed supported things
 

@@ -1,6 +1,6 @@
 {
-  "date": "2026-11-11",
-  "upstreamCommit": "ec49bcb0d88202e92674fe910a0201f2a44db961",
+  "date": "2026-11-12",
+  "upstreamCommit": "a44c12d63d3aa72cc78b367f37b186606b1caa8b",
   "features": [
     {
       "id": "app.bsky.embed.external#view",
