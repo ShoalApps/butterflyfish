@@ -112,6 +112,7 @@ New data can flow automatically; new screens need building.
 - `app.bsky.unspecced.getAtmosphereExploreArticleRecommendations`
 - `app.bsky.unspecced.getAtmosphereExploreTab`
 - `app.bsky.unspecced.getAtmosphereTimeline`
+- `app.bsky.unspecced.getAtmosphereTimelineV2`
 - `app.bsky.unspecced.getConfig`
 - `app.bsky.unspecced.getOnboardingSuggestedStarterPacks`
 - `app.bsky.unspecced.getOnboardingSuggestedStarterPacksSkeleton`
@@ -224,6 +225,9 @@ New data can flow automatically; new screens need building.
 - `app.bsky.unspecced.getAtmosphereTimeline#activityActorGroup`
 - `app.bsky.unspecced.getAtmosphereTimeline#activityItem`
 - `app.bsky.unspecced.getAtmosphereTimeline#activitySubjectGroup`
+- `app.bsky.unspecced.getAtmosphereTimelineV2#activityActorGroup`
+- `app.bsky.unspecced.getAtmosphereTimelineV2#activityItem`
+- `app.bsky.unspecced.getAtmosphereTimelineV2#activitySubjectGroup`
 - `com.atproto.label.defs#selfLabels`
 
 ## New fields on records read
