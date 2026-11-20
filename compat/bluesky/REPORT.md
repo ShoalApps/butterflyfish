@@ -259,7 +259,10 @@ New data can flow automatically; new screens need building.
 
 ## Removed things
 
-None.
+- `app.bsky.unspecced.getAtmosphereApps#appCard.appStoreUrl`
+- `app.bsky.unspecced.getAtmosphereApps#appCard.googlePlayUrl`
+- `app.bsky.unspecced.getAtmosphereExploreTab#appCard.appStoreUrl`
+- `app.bsky.unspecced.getAtmosphereExploreTab#appCard.googlePlayUrl`
 
 ## Removed supported things
 
